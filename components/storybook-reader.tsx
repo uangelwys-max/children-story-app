@@ -28,6 +28,7 @@ export function StorybookReader() {
   const streamRef = useRef<MediaStream | null>(null)
   const stopPlaybackRef = useRef<(() => void) | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const audioElRef = useRef<HTMLAudioElement | null>(null)
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -111,10 +112,12 @@ export function StorybookReader() {
       setError("먼저 녹음 버튼을 눌러 동화를 읽어 주세요!")
       return
     }
+    const audioEl = audioElRef.current
+    if (!audioEl) return
     setError(null)
     setIsPlaying(true)
     try {
-      const stop = await playWithVoice(blob, getPreset(selectedVoice), () => {
+      const stop = await playWithVoice(blob, getPreset(selectedVoice), audioEl, () => {
         setIsPlaying(false)
         stopPlaybackRef.current = null
       })
@@ -130,6 +133,9 @@ export function StorybookReader() {
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-4 py-4 sm:px-6">
+      {/* iOS 에서 스피커로 출력하기 위한 재생 전용 오디오 엘리먼트 */}
+      <audio ref={audioElRef} className="hidden" aria-hidden="true" />
+
       {/* 상단 타이틀 */}
       <header className="flex items-center justify-center gap-2 py-2">
         <span className="text-2xl sm:text-3xl" aria-hidden="true">
