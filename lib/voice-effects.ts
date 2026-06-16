@@ -88,38 +88,44 @@ export function getPreset(id: VoiceId): VoicePreset {
 }
 
 /**
- * 녹음된 오디오 Blob에 목소리 효과를 "미리" 적용해서 WAV Blob 으로 만든다.
- *
- * iOS Safari 는 마이크 녹음 후 AudioContext 로 직접 재생하면 소리를
- * 수화부(이어피스)로만 보낸다. 그래서 여기서는 소리를 내지 않는
- * OfflineAudioContext 로 효과만 입혀 두고, 실제 재생은 <audio> 엘리먼트로
- * 한다. iOS 는 <audio> 재생은 항상 스피커로 보내기 때문이다.
+ * 녹음 도중 목소리를 바꾼 시점을 기록한 마커.
+ * startMs = 녹음 시작 기준 경과 시간(ms).
  */
-async function renderVoiceToWav(blob: Blob, preset: VoicePreset): Promise<Blob> {
-  const AudioCtx =
-    window.AudioContext ||
-    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+export type VoiceMarker = { voiceId: VoiceId; startMs: number }
 
-  // 디코딩용 임시 컨텍스트 (소리는 나지 않는다)
-  const decodeCtx = new AudioCtx()
-  const arrayBuffer = await blob.arrayBuffer()
-  const audioBuffer = await decodeCtx.decodeAudioData(arrayBuffer)
-  void decodeCtx.close()
-
-  const sampleRate = audioBuffer.sampleRate
-  // playbackRate 가 빠르면 재생 길이가 짧아진다.
-  const frames = Math.ceil(audioBuffer.length / preset.playbackRate) + sampleRate * 0.05
-  const channels = audioBuffer.numberOfChannels
-
+function getOfflineCtx(channels: number, frames: number, sampleRate: number) {
   const OfflineCtx =
     window.OfflineAudioContext ||
     (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext })
       .webkitOfflineAudioContext
+  return new OfflineCtx(channels, frames, sampleRate)
+}
 
-  const offline = new OfflineCtx(channels, frames, sampleRate)
+/** AudioBuffer 의 특정 시간 구간만 잘라 새 AudioBuffer 로 만든다. */
+function sliceBuffer(buffer: AudioBuffer, startSec: number, endSec: number): AudioBuffer {
+  const { sampleRate, numberOfChannels } = buffer
+  const startFrame = Math.max(0, Math.floor(startSec * sampleRate))
+  const endFrame = Math.min(buffer.length, Math.floor(endSec * sampleRate))
+  const frameCount = Math.max(1, endFrame - startFrame)
+
+  const out = new AudioBuffer({ length: frameCount, numberOfChannels, sampleRate })
+  for (let c = 0; c < numberOfChannels; c++) {
+    out.copyToChannel(buffer.getChannelData(c).subarray(startFrame, endFrame), c, 0)
+  }
+  return out
+}
+
+/** 하나의 AudioBuffer 에 목소리 효과를 입혀 렌더링된 AudioBuffer 를 돌려준다. */
+async function renderBufferWithPreset(
+  buffer: AudioBuffer,
+  preset: VoicePreset,
+): Promise<AudioBuffer> {
+  const sampleRate = buffer.sampleRate
+  const frames = Math.ceil(buffer.length / preset.playbackRate) + Math.ceil(sampleRate * 0.02)
+  const offline = getOfflineCtx(buffer.numberOfChannels, frames, sampleRate)
 
   const source = offline.createBufferSource()
-  source.buffer = audioBuffer
+  source.buffer = buffer
   source.playbackRate.value = preset.playbackRate
 
   let lastNode: AudioNode = source
@@ -149,9 +155,70 @@ async function renderVoiceToWav(blob: Blob, preset: VoicePreset): Promise<Blob> 
   masterGain.connect(offline.destination)
 
   source.start()
+  return offline.startRendering()
+}
 
-  const rendered = await offline.startRendering()
-  return audioBufferToWav(rendered)
+/** 여러 AudioBuffer 를 순서대로 이어 붙여 하나로 만든다. */
+function concatBuffers(buffers: AudioBuffer[]): AudioBuffer {
+  const sampleRate = buffers[0].sampleRate
+  const channels = Math.max(...buffers.map((b) => b.numberOfChannels))
+  const totalLength = buffers.reduce((sum, b) => sum + b.length, 0)
+
+  const out = new AudioBuffer({ length: totalLength, numberOfChannels: channels, sampleRate })
+  let offset = 0
+  for (const b of buffers) {
+    for (let c = 0; c < channels; c++) {
+      const data = b.getChannelData(Math.min(c, b.numberOfChannels - 1))
+      out.copyToChannel(data, c, offset)
+    }
+    offset += b.length
+  }
+  return out
+}
+
+/**
+ * 녹음 Blob 을 마커에 따라 구간별로 잘라 각각 다른 목소리로 변조한 뒤,
+ * 순서대로 이어 붙여 하나의 WAV Blob 으로 만든다.
+ *
+ * iOS Safari 는 마이크 녹음 후 AudioContext 로 직접 재생하면 소리를
+ * 수화부(이어피스)로만 보낸다. 그래서 효과는 소리를 내지 않는
+ * OfflineAudioContext 로 미리 입혀 두고, 실제 재생은 <audio> 엘리먼트로
+ * 한다. iOS 는 <audio> 재생은 항상 스피커로 보내기 때문이다.
+ */
+async function renderMarkersToWav(blob: Blob, markers: VoiceMarker[]): Promise<Blob> {
+  const AudioCtx =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+
+  // 디코딩용 임시 컨텍스트 (소리는 나지 않는다)
+  const decodeCtx = new AudioCtx()
+  const arrayBuffer = await blob.arrayBuffer()
+  const audioBuffer = await decodeCtx.decodeAudioData(arrayBuffer)
+  void decodeCtx.close()
+
+  const totalSec = audioBuffer.duration
+
+  // 마커가 없으면 변조 없음 전체 한 구간으로 처리
+  const safeMarkers: VoiceMarker[] =
+    markers.length > 0 ? markers : [{ voiceId: "none", startMs: 0 }]
+
+  const renderedSegments: AudioBuffer[] = []
+  for (let i = 0; i < safeMarkers.length; i++) {
+    const startSec = safeMarkers[i].startMs / 1000
+    const endSec = i + 1 < safeMarkers.length ? safeMarkers[i + 1].startMs / 1000 : totalSec
+    if (endSec - startSec <= 0.01) continue // 너무 짧은 구간은 건너뛴다
+
+    const segment = sliceBuffer(audioBuffer, startSec, endSec)
+    const rendered = await renderBufferWithPreset(segment, getPreset(safeMarkers[i].voiceId))
+    renderedSegments.push(rendered)
+  }
+
+  // 모든 구간이 너무 짧아 비었다면 전체를 변조 없음으로
+  if (renderedSegments.length === 0) {
+    renderedSegments.push(await renderBufferWithPreset(audioBuffer, getPreset("none")))
+  }
+
+  return audioBufferToWav(concatBuffers(renderedSegments))
 }
 
 /** AudioBuffer 를 16-bit PCM WAV Blob 으로 인코딩한다. */
@@ -203,18 +270,18 @@ function audioBufferToWav(buffer: AudioBuffer): Blob {
 }
 
 /**
- * 녹음된 Blob 을 선택한 목소리 효과로 재생한다.
+ * 녹음된 Blob 을 마커(구간별 목소리)에 따라 변조해 이어 재생한다.
  * 효과는 OfflineAudioContext 로 미리 입히고, 재생은 전달받은 <audio>
  * 엘리먼트로 한다 (iOS 에서 스피커로 출력하기 위함).
  * 재생을 멈추는 stop 함수를 반환한다.
  */
 export async function playWithVoice(
   blob: Blob,
-  preset: VoicePreset,
+  markers: VoiceMarker[],
   audioEl: HTMLAudioElement,
   onEnded: () => void,
 ): Promise<() => void> {
-  const wav = await renderVoiceToWav(blob, preset)
+  const wav = await renderMarkersToWav(blob, markers)
   const url = URL.createObjectURL(wav)
 
   let stopped = false

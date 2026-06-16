@@ -9,6 +9,7 @@ import {
   playWithVoice,
   VOICE_PRESETS,
   type VoiceId,
+  type VoiceMarker,
 } from "@/lib/voice-effects"
 import { VoiceButton } from "@/components/voice-button"
 
@@ -29,6 +30,13 @@ export function StorybookReader() {
   const stopPlaybackRef = useRef<(() => void) | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const audioElRef = useRef<HTMLAudioElement | null>(null)
+  // 녹음 중 목소리 변경 시점을 담는 마커들과, 녹음 시작 시각
+  const markersRef = useRef<VoiceMarker[]>([])
+  const recordStartRef = useRef<number>(0)
+  // 재생에 사용할, 녹음이 끝난 시점에 확정된 마커들
+  const recordedMarkersRef = useRef<VoiceMarker[]>([])
+  // 콜백에서 최신 녹음 상태를 참조하기 위한 ref
+  const isRecordingRef = useRef(false)
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -60,6 +68,9 @@ export function StorybookReader() {
       })
       streamRef.current = stream
       chunksRef.current = []
+      // 첫 구간은 현재 선택된 목소리로 0ms 부터 시작
+      markersRef.current = [{ voiceId: selectedVoice, startMs: 0 }]
+      recordStartRef.current = performance.now()
 
       const recorder = new MediaRecorder(stream)
       recorder.ondataavailable = (e) => {
@@ -69,6 +80,8 @@ export function StorybookReader() {
         recordedBlobRef.current = new Blob(chunksRef.current, {
           type: recorder.mimeType || "audio/webm",
         })
+        // 녹음이 끝난 시점에 마커를 확정한다
+        recordedMarkersRef.current = markersRef.current
         setHasRecording(true)
         streamRef.current?.getTracks().forEach((t) => t.stop())
         streamRef.current = null
@@ -76,6 +89,7 @@ export function StorybookReader() {
 
       recorder.start()
       mediaRecorderRef.current = recorder
+      isRecordingRef.current = true
       setIsRecording(true)
       setSeconds(0)
       clearTimer()
@@ -83,14 +97,30 @@ export function StorybookReader() {
     } catch {
       setError("마이크를 사용할 수 없어요. 마이크 권한을 허락해 주세요!")
     }
-  }, [clearTimer])
+  }, [clearTimer, selectedVoice])
 
   const stopRecording = useCallback(() => {
     mediaRecorderRef.current?.stop()
     mediaRecorderRef.current = null
+    isRecordingRef.current = false
     setIsRecording(false)
     clearTimer()
   }, [clearTimer])
+
+  // 목소리 버튼 선택: 녹음 중이면 변경 시점을 마커로 기록한다
+  const handleVoiceSelect = useCallback((id: VoiceId) => {
+    setSelectedVoice(id)
+    if (!isRecordingRef.current) return
+    const t = performance.now() - recordStartRef.current
+    const markers = markersRef.current
+    const last = markers[markers.length - 1]
+    if (last && t - last.startMs < 120) {
+      // 같은 순간에 여러 번 바꾸면 마지막 선택만 유지
+      last.voiceId = id
+    } else {
+      markers.push({ voiceId: id, startMs: t })
+    }
+  }, [])
 
   const handleRecordClick = useCallback(() => {
     if (isPlaying) return
@@ -117,7 +147,7 @@ export function StorybookReader() {
     setError(null)
     setIsPlaying(true)
     try {
-      const stop = await playWithVoice(blob, getPreset(selectedVoice), audioEl, () => {
+      const stop = await playWithVoice(blob, recordedMarkersRef.current, audioEl, () => {
         setIsPlaying(false)
         stopPlaybackRef.current = null
       })
@@ -126,7 +156,7 @@ export function StorybookReader() {
       setError("재생 중 문제가 생겼어요. 다시 시도해 주세요!")
       setIsPlaying(false)
     }
-  }, [isPlaying, isRecording, selectedVoice])
+  }, [isPlaying, isRecording])
 
   const minutes = String(Math.floor(seconds / 60)).padStart(2, "0")
   const secs = String(seconds % 60).padStart(2, "0")
@@ -186,19 +216,19 @@ export function StorybookReader() {
         ) : isRecording ? (
           <p className="flex items-center gap-2 text-center text-sm font-bold text-destructive">
             <span className="inline-block h-3 w-3 animate-pulse rounded-full bg-destructive" />
-            녹음 중... {minutes}:{secs}
+            녹음 중... {minutes}:{secs} · 지금 목소리: {getPreset(selectedVoice).label}
           </p>
         ) : isPlaying ? (
           <p className="text-center text-sm font-bold text-foreground">
-            🔊 {getPreset(selectedVoice).label} 목소리로 재생 중...
+            🔊 녹음한 목소리로 재생 중...
           </p>
         ) : hasRecording ? (
           <p className="text-center text-sm font-bold text-muted-foreground">
-            목소리를 골라서 재생 버튼을 눌러 보세요!
+            초록 재생 버튼을 눌러 들어 보세요!
           </p>
         ) : (
           <p className="text-center text-sm font-bold text-muted-foreground">
-            빨간 녹음 버튼을 누르고 마녀 대사를 읽어 보세요!
+            녹음 중에 목소리 버튼을 바꾸면 그 부분만 바뀌어요!
           </p>
         )}
       </div>
@@ -211,7 +241,7 @@ export function StorybookReader() {
               key={preset.id}
               preset={preset}
               selected={selectedVoice === preset.id}
-              onSelect={() => setSelectedVoice(preset.id)}
+              onSelect={() => handleVoiceSelect(preset.id)}
             />
           ))}
         </div>
