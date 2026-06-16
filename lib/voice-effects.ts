@@ -102,6 +102,11 @@ export async function playWithVoice(
     (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
   const ctx = new AudioCtx()
 
+  // iOS/모바일에서 오디오 세션이 잠겨 있을 수 있으니 스피커 출력을 깨운다.
+  if (ctx.state === "suspended") {
+    await ctx.resume()
+  }
+
   const arrayBuffer = await blob.arrayBuffer()
   const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
 

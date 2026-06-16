@@ -48,7 +48,15 @@ export function StorybookReader() {
   const startRecording = useCallback(async () => {
     setError(null)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // echoCancellation 등을 켜면 폰이 "통화 모드"가 되어 소리가
+      // 스피커 대신 수화부(이어피스)로만 나간다. 모두 꺼서 스피커로 재생되게 한다.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      })
       streamRef.current = stream
       chunksRef.current = []
 
