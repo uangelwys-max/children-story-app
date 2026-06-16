@@ -13,7 +13,8 @@ import {
 } from "@/lib/voice-effects"
 import { VoiceButton } from "@/components/voice-button"
 
-const DIALOGUE = "음하하하! 이 나라에서 가장 예쁜 사람은 누구냐!"
+const DIALOGUE =
+  '왕비는 날마다 마술 거울에게 물었어요. "거울아, 거울아. 세상에서 누가 제일 이쁘지?"'
 
 export function StorybookReader() {
   const [selectedVoice, setSelectedVoice] = useState<VoiceId>("none")
