@@ -21,6 +21,12 @@ export type VoicePreset = {
   playbackRate: number
   /** 로봇 효과처럼 링 모듈레이션을 적용할지 여부 */
   robot?: boolean
+  /** 피치가 주기적으로 흔들리는 진동 효과 설정 */
+  vibrato?: { rate: number; depth: number }
+  /** 음량이 미세하게 출렁이는 트레몰로 효과 설정 */
+  tremolo?: { rate: number; depth: number }
+  /** 고역을 줄여 살짝 탁한 음색을 만드는 필터 주파수 */
+  toneCutoff?: number
 }
 
 export const VOICE_PRESETS: VoicePreset[] = [
@@ -62,7 +68,10 @@ export const VOICE_PRESETS: VoicePreset[] = [
     label: "할머니",
     className: "bg-orange-200 text-orange-900",
     ringClassName: "ring-orange-400",
-    playbackRate: 1.18,
+    playbackRate: 1.15,
+    vibrato: { rate: 5.2, depth: 0.022 },
+    tremolo: { rate: 4.1, depth: 0.08 },
+    toneCutoff: 3200,
   },
   {
     id: "robot",
@@ -129,6 +138,35 @@ async function renderBufferWithPreset(
   source.playbackRate.value = preset.playbackRate
 
   let lastNode: AudioNode = source
+  const modulators: OscillatorNode[] = []
+
+  if (preset.vibrato) {
+    // 재생 속도를 아주 조금 흔들어 나이 든 목소리 특유의 떨림을 만든다.
+    const vibrato = offline.createOscillator()
+    vibrato.type = "sine"
+    vibrato.frequency.value = preset.vibrato.rate
+    const vibratoDepth = offline.createGain()
+    vibratoDepth.gain.value = preset.vibrato.depth
+    vibrato.connect(vibratoDepth)
+    vibratoDepth.connect(source.playbackRate)
+    modulators.push(vibrato)
+  }
+
+  if (preset.tremolo) {
+    // 진폭을 미세하게 흔들되, 말소리가 꺼지지 않도록 중심값을 유지한다.
+    const tremolo = offline.createOscillator()
+    tremolo.type = "sine"
+    tremolo.frequency.value = preset.tremolo.rate
+    const tremoloDepth = offline.createGain()
+    tremoloDepth.gain.value = preset.tremolo.depth
+    const tremoloGain = offline.createGain()
+    tremoloGain.gain.value = 1 - preset.tremolo.depth
+    tremolo.connect(tremoloDepth)
+    tremoloDepth.connect(tremoloGain.gain)
+    lastNode.connect(tremoloGain)
+    lastNode = tremoloGain
+    modulators.push(tremolo)
+  }
 
   if (preset.robot) {
     // 링 모듈레이션: 신호에 저주파 사인파를 곱해 금속성 로봇 음색을 만든다.
@@ -146,7 +184,17 @@ async function renderBufferWithPreset(
 
     lastNode.connect(modGain)
     osc.start()
+    modulators.push(osc)
     lastNode = modGain
+  }
+
+  const toneFilter = preset.toneCutoff ? offline.createBiquadFilter() : null
+  if (toneFilter && preset.toneCutoff) {
+    toneFilter.type = "lowpass"
+    toneFilter.frequency.value = preset.toneCutoff
+    toneFilter.Q.value = 0.7
+    lastNode.connect(toneFilter)
+    lastNode = toneFilter
   }
 
   const masterGain = offline.createGain()
@@ -155,6 +203,7 @@ async function renderBufferWithPreset(
   masterGain.connect(offline.destination)
 
   source.start()
+  modulators.forEach((osc) => osc.start())
   return offline.startRendering()
 }
 

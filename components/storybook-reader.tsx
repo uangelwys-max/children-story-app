@@ -161,6 +161,14 @@ export function StorybookReader() {
 
   const minutes = String(Math.floor(seconds / 60)).padStart(2, "0")
   const secs = String(seconds % 60).padStart(2, "0")
+  const selectedPreset = getPreset(selectedVoice)
+  const selectedEffectLabel = selectedPreset.vibrato
+    ? "떨림 + 미세한 트레몰로"
+    : selectedPreset.robot
+      ? "링 모듈레이션"
+      : selectedVoice === "none"
+        ? "효과 없음"
+        : "기본 음색 변조"
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-4 py-4 sm:px-6">
@@ -217,7 +225,7 @@ export function StorybookReader() {
         ) : isRecording ? (
           <p className="flex items-center gap-2 text-center text-sm font-bold text-destructive">
             <span className="inline-block h-3 w-3 animate-pulse rounded-full bg-destructive" />
-            녹음 중... {minutes}:{secs} · 지금 목소리: {getPreset(selectedVoice).label}
+            녹음 중... {minutes}:{secs} · 지금 목소리: {selectedPreset.label} ({selectedEffectLabel})
           </p>
         ) : isPlaying ? (
           <p className="text-center text-sm font-bold text-foreground">

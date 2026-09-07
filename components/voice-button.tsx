@@ -15,7 +15,8 @@ export function VoiceButton({ preset, selected, onSelect }: VoiceButtonProps) {
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      aria-label={`${preset.label} 목소리`}
+      aria-label={`${preset.label} 목소리${preset.vibrato ? ", 진동과 미세한 트레몰로 효과" : ""}`}
+      title={preset.vibrato ? `${preset.label}: 떨림 + 미세한 음량 변조` : preset.label}
       className={cn(
         "flex shrink-0 flex-col items-center justify-center gap-1 rounded-3xl px-4 py-3 transition-all duration-150",
         "w-[5.5rem] sm:w-24",
