@@ -61,6 +61,9 @@ export const VOICE_PRESETS: VoicePreset[] = [
     className: "bg-amber-200 text-amber-900",
     ringClassName: "ring-amber-400",
     playbackRate: 0.8,
+    // 할머니보다 느리고 깊은 떨림으로 낮고 묵직한 노년의 음색을 유지한다.
+    vibrato: { rate: 3.6, depth: 0.014 },
+    tremolo: { rate: 2.8, depth: 0.055 },
   },
   {
     id: "grandma",
