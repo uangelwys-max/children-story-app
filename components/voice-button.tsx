@@ -10,13 +10,19 @@ type VoiceButtonProps = {
 }
 
 export function VoiceButton({ preset, selected, onSelect }: VoiceButtonProps) {
+  const effectLabels = [
+    preset.vibrato ? "피치 떨림" : null,
+    preset.tremolo ? "음량 떨림" : null,
+  ].filter(Boolean)
+  const effectDescription = effectLabels.length > 0 ? `, ${effectLabels.join("과 ")} 효과` : ""
+
   return (
     <button
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      aria-label={`${preset.label} 목소리${preset.vibrato ? ", 진동과 미세한 트레몰로 효과" : ""}`}
-      title={preset.vibrato ? `${preset.label}: 떨림 + 미세한 음량 변조` : preset.label}
+      aria-label={`${preset.label} 목소리${effectDescription}`}
+      title={effectLabels.length > 0 ? `${preset.label}: ${effectLabels.join(" + ")}` : preset.label}
       className={cn(
         "flex shrink-0 flex-col items-center justify-center gap-1 rounded-3xl px-4 py-3 transition-all duration-150",
         "w-[5.5rem] sm:w-24",

@@ -162,10 +162,14 @@ export function StorybookReader() {
   const minutes = String(Math.floor(seconds / 60)).padStart(2, "0")
   const secs = String(seconds % 60).padStart(2, "0")
   const selectedPreset = getPreset(selectedVoice)
-  const selectedEffectLabel = selectedPreset.vibrato
-    ? "떨림 + 미세한 트레몰로"
-    : selectedPreset.robot
-      ? "링 모듈레이션"
+  const selectedEffects = [
+    selectedPreset.vibrato ? "피치 떨림" : null,
+    selectedPreset.tremolo ? "음량 떨림" : null,
+    selectedPreset.robot ? "링 모듈레이션" : null,
+  ].filter(Boolean)
+  const selectedEffectLabel =
+    selectedEffects.length > 0
+      ? selectedEffects.join(" + ")
       : selectedVoice === "none"
         ? "효과 없음"
         : "기본 음색 변조"
@@ -229,15 +233,15 @@ export function StorybookReader() {
           </p>
         ) : isPlaying ? (
           <p className="text-center text-sm font-bold text-foreground">
-            🔊 녹음한 목소리로 재생 중...
+            녹음한 목소리로 재생 중... 현재 선택: {selectedPreset.label} ({selectedEffectLabel})
           </p>
         ) : hasRecording ? (
           <p className="text-center text-sm font-bold text-muted-foreground">
-            초록 재생 버튼을 눌러 들어 보세요!
+            초록 재생 버튼을 눌러 들어 보세요! 현재 선택: {selectedPreset.label} ({selectedEffectLabel})
           </p>
         ) : (
           <p className="text-center text-sm font-bold text-muted-foreground">
-            녹음 중에 목소리 버튼을 바꾸면 그 부분만 바뀌어요!
+            현재 선택: {selectedPreset.label} ({selectedEffectLabel}) · 녹음 중에 목소리 버튼을 바꾸면 그 부분만 바뀌어요!
           </p>
         )}
       </div>
